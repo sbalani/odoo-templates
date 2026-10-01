@@ -18,7 +18,7 @@ class TestSelfBillingReport(AccountTestInvoicingCommon):
 
     def _render(self, invoice):
         content, _ = self.env['ir.actions.report'].with_context(lang='en_US')._render_qweb_html(
-            'account.account_invoices', res_ids=invoice.ids,
+            'account.account_invoices', invoice.ids,
         )
         return html.fromstring(content)
 
