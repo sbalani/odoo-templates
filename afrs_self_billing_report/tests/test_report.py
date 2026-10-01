@@ -1,4 +1,4 @@
-from lxml import html
+from lxml import etree, html
 
 from odoo.addons.account.tests.common import AccountTestInvoicingCommon
 from odoo.tests import tagged
@@ -71,3 +71,32 @@ class TestSelfBillingReport(AccountTestInvoicingCommon):
         rendered = self._render(bill)
         self.assertIn('Vendor Bill', rendered.text_content())
         self.assertFalse(rendered.xpath("//p[@name='afrs_self_billing_notice']"))
+
+    def test_alternate_vendor_bill_condition(self):
+        # Reproduce the deployment failure: the exact t-elif expression used by
+        # the initial addon is absent, while the Odoo 18 title block is intact.
+        parent = self.env.ref('account.report_invoice_document')
+        arch = etree.fromstring(parent.arch_db.encode())
+        vendor_title = arch.xpath("//span[@t-elif=\"o.move_type == 'in_invoice'\"]")[0]
+        del vendor_title.attrib['t-elif']
+        vendor_title.set('t-if', "o.move_type == 'in_invoice' and o.state in ('draft', 'posted', 'cancel')")
+        parent.arch_db = etree.tostring(arch, encoding='unicode')
+        self.assertFalse(etree.fromstring(parent.arch_db.encode()).xpath(
+            "//span[@t-elif=\"o.move_type == 'in_invoice'\"]"
+        ))
+        self.test_other_documents_retain_original_report()
+        self.test_self_billing_title_number_and_unchanged_amount_sections()
+
+    def test_posted_self_billing_number(self):
+        bill = self.init_invoice(
+            'in_invoice', journal=self.self_billing_journal,
+            products=self.product_a, post=True,
+        )
+        number = bill.name
+        self.assertTrue(number.startswith('AFRS'))
+        rendered = self._render(bill).text_content()
+        self.assertIn('FACTURA', rendered)
+        self.assertIn(number, rendered)
+        self.assertIn('Facturación por el destinatario', rendered)
+        self.assertNotIn('Vendor Bill', rendered)
+        self.assertEqual(bill.name, number)
